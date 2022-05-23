@@ -1,0 +1,561 @@
+import { api, LightningElement,track,wire } from 'lwc';
+import savePersonIdentity from '@salesforce/apex/Member_JobPortal.savePersonIdentity';
+import getPersonIdentity from '@salesforce/apex/Member_JobPortal.getPersonIdentity';
+import checkCountForDocUpload from '@salesforce/apex/Member_JobPortal.checkCountForDocUpload';
+import deleteAllRecordDocumentsAndRecord from '@salesforce/apex/Member_JobPortal.deleteAllRecordDocumentsAndRecord';
+
+
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+import { NavigationMixin } from 'lightning/navigation';
+import { deleteRecord } from 'lightning/uiRecordApi';
+import { updateRecord } from 'lightning/uiRecordApi';
+
+import ID_FIELD from '@salesforce/schema/Personal_Identity__c.Id';
+import Status_FIELD from '@salesforce/schema/Personal_Identity__c.Status__c';
+import Submitted_for_review_on_FIELD from '@salesforce/schema/Personal_Identity__c.Submitted_for_review_on__c';
+
+const IDFRONTCOPY='Personal Identity Front Copy';
+const IDBACKCOPY='Personal Identity Back Copy';
+
+export default class Member_Personal_Identity extends NavigationMixin(LightningElement) {
+    DocTypeMain=[IDFRONTCOPY,IDBACKCOPY];
+    
+    //Name Variables
+    @track showList=true;
+    @track showPrimaryIdForm=false;
+    deleteConfirmationPopup=false;
+    submitForReviewConfirmationPopup=false;
+
+    allPrimaryIdsData=[];
+    allSecondaryIdsData=[];
+    @api uploadedprimaryid=[];
+    @api uploadedsecondaryid=[];
+
+    @api memberId;
+    @api memberName;
+    @api iddata;
+
+    index;
+    recId;
+    primsecd;
+
+    loader = false;
+    @track popUpTitle;
+    @track popUpBody;
+    @track isDocAvailable = false;
+    connectedCallback(){
+        // console.log('Member_Personal_Identity ---> connectedCallback ');
+        
+        this.memberName = this.getUrlParamValue(window.location.href, 'MemberName');
+        this.memberId=this.getUrlParamValue(window.location.href, 'MemberId');
+        // console.log('MemberName=>' + this.memberName);
+        // console.log('memberId=>' + this.memberId);
+
+        this.getAllPersonIdentity();
+    }
+
+    getUrlParamValue(url, key) {
+        return new URL(url).searchParams.get(key);
+    }
+
+    //Get Personal Identity Data Methods
+    async getAllPersonIdentity(){
+        this.isDocAvailable = false;
+        this.loader=true;
+        await getPersonIdentity({memberId:this.memberId})
+        .then(data => {
+            this.allPrimaryIdsData=[];
+            this.allSecondaryIdsData=[];
+            if (data) {                
+               // console.log('type of data -->'+typeof(data));
+                // console.log('getPersonIdentity data=>' + JSON.stringify(data));
+
+               
+                for(let temp of data){
+                    if(temp.isPrimary==true){
+                        this.uploadedprimaryid.push(temp.IDType);
+                        this.allPrimaryIdsData.push(temp);
+                    
+                    }
+                    else{
+                        this.uploadedsecondaryid.push(temp.IDType);
+                        this.allSecondaryIdsData.push(temp);
+                    
+                    }
+                }
+                
+               
+                //this.allPrimaryIdsData.splice(0,1);
+                /*
+                console.log('type of allPrimaryIdsData -->'+typeof(this.allPrimaryIdsData));
+                console.log('allPrimaryIdsData -->'+JSON.stringify(this.allPrimaryIdsData));
+
+                console.log('type of allSecondaryIdsData -->'+typeof(this.allSecondaryIdsData));
+                console.log('allSecondaryIdsData -->'+JSON.stringify(this.allSecondaryIdsData));
+                */
+                
+            }
+            this.loader=false;
+        })
+        .catch(error => {
+            this.loader=false;  
+            console.log('error=>' + error);
+            console.log('error=>' + JSON.stringify(error));
+        });
+    }
+
+    /********** Navigation Methods Starts *************/
+
+    backToMyProfile(){
+        
+        this[NavigationMixin.Navigate]({
+            type: 'comm__namedPage',
+            attributes: {
+                name: 'My_Profile__c'
+            }
+        });
+    }
+
+    backToPersonalIdentity(event){
+        
+        // await this.getAllPersonIdentity();
+         this.showList = true;
+         this.showPrimaryIdForm=null;
+        this.getAllPersonIdentity();
+        // window.location.reload();
+        
+    }
+
+    /********** Navigation Methods Ends *************/
+
+    /*********** Add Identity Methods Starts ***************/
+    addPrimaryId(event){
+        
+        this.showList = false;
+        this.iddata=null;
+        this.showPrimaryIdForm = true;
+
+    }
+
+    addSecondaryId(event){
+        
+        this.showList = false;
+        this.iddata=null;
+        this.showPrimaryIdForm = false;
+
+    }
+    /*********** Add Identity Methods Ends ***************/
+
+    /*********** Edit Identity Methods Starts ***************/
+    EditPrimaryId(event){
+      
+        let index=event.currentTarget.dataset.index;
+
+        this.iddata=this.allPrimaryIdsData[index];
+        //console.log('Edit iddata-->'+JSON.stringify(this.iddata));
+        this.showList = false;
+        this.showPrimaryIdForm = true;
+    }
+
+    EditSecondaryId(event){
+        
+        let index=event.currentTarget.dataset.index;
+        this.iddata=this.allSecondaryIdsData[index];
+
+        //console.log('Edit iddata-->'+JSON.stringify(this.iddata));
+
+        this.showList = false;
+        this.showPrimaryIdForm = false;
+    }
+
+    /*********** Edit Identity Methods Ends ***************/
+
+
+    /*********** Delete Identity Methods Starts ***************/
+    DeleteId(event){        
+        this.index =event.currentTarget.dataset.index;
+        this.recId =event.currentTarget.dataset.id;
+        this.primsecd =event.currentTarget.dataset.primsecd;
+        
+        this.deleteConfirmationPopup=true;
+
+    }
+
+    deleteIdentity(event){
+        this.loader=true;
+     
+        deleteAllRecordDocumentsAndRecord({'recordId': this.recId})
+            .then(data =>  {               
+                console.log('deleteAllRecordDocumentsAndRecord Result-->'+data);
+                                     
+                    this.dispatchEvent(
+                        new ShowToastEvent({
+                            title: 'Success!',
+                            message: 'Personal Identity Deleted Successfully.',
+                            variant: 'success'
+                        })
+                    );
+                    let IdList;
+                    /*
+                    if(primsecd=='false'){
+                        console.log('Secondary Id Deleted-->');
+                        IdList=this.allSecondaryIdsData;
+                        IdList.splice(index,1);
+                        console.log('Secondary Id Deleted after-->');
+                        this.allSecondaryIdsData = IdList;
+                    }
+                    else{
+                        console.log('Primary Id Deleted-->');
+                        IdList=this.allPrimaryIdsData;
+                        IdList.splice(index,1);
+                        console.log('Primary Id Deleted after-->');
+                        this.allPrimaryIdsData = IdList;
+                    }*/
+
+                    this.index=null;
+                    this.recId=null;
+                    this.primsecd=null;
+                    this.closePopUp();
+                    this.getAllPersonIdentity();
+                    this.loader=false;
+                
+        })
+        .catch(error => {
+                this.loader=false;  
+                this.closePopUp();
+                console.log('error=>' + error);
+        });
+        
+
+        this.loader=false;
+    }
+    /*********** Delete Identity Methods Ends ***************/
+    
+    closePopUp(){
+        this.deleteConfirmationPopup=false;
+        this.submitForReviewConfirmationPopup=false;
+    }
+
+    /*********** submit For Review Methods Starts ***************/
+    async checkCountForDocUploadForRecordDetail(){
+        await checkCountForDocUpload({'recordId':this.recId,'DocTypeMainList':this.DocTypeMain})
+        .then(data => {
+            if (data) {       
+                // console.log('Data in checkCountForDocUpload'+ JSON.stringify(data))         
+                this.isDocAvailable = data;                            
+            }
+        })
+        .catch(error => {
+            console.log('error==' + error);
+            console.log('error=>' + JSON.stringify(error));    
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: 'Error While Checking Upload Documents!',
+                    message: error.body.message,
+                    variant: 'error'
+                })
+            );
+        });
+    }
+
+
+      async submitForReviewConfimation(event){
+        this.recId = event.currentTarget.dataset.id;
+        this.isDocAvailable=false;
+        await this.checkCountForDocUploadForRecordDetail();
+            if(this.isDocAvailable){
+                this.popUpTitle = 'Confirm submission For Review';
+                this.popUpBody = 'Do you really want to submit this Personal Identity Detail for review?'            
+            }
+            else{
+                this.popUpTitle = 'Upload Supporting Documents';
+                this.popUpBody = 'Please upload Supporting Documents to submit this Personal Identity Detail for review.'           
+            }
+
+        this.submitForReviewConfirmationPopup=true;
+        }
+
+        async submitForReview(event){         
+            console.log('recId-->'+this.recId);
+            
+            const todayDate=new Date();
+            const expirationDate=new Date(event.currentTarget.dataset.date);
+            console.log('expirationDate-->'+expirationDate);
+
+            if(expirationDate<todayDate){
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Personal Identity Document Expired!',
+                        message: 'Your Personal Identity Document is Expired. You Can\'t Submit for Review',
+                        variant: 'error'
+                    })
+                );
+                return;
+            }
+
+            console.log('todayDate-->'+todayDate);
+            const fields = {};
+                fields[ID_FIELD.fieldApiName] = this.recId;
+                fields[Submitted_for_review_on_FIELD.fieldApiName] = todayDate.toISOString(); //todayDate;
+                fields[Status_FIELD.fieldApiName] = 'Submitted for Review';
+
+                const recordInput = { fields };
+                this.submitForReviewConfirmationPopup=false;
+                await updateRecord(recordInput)
+                    .then(() => {
+                        this.dispatchEvent(
+                            new ShowToastEvent({
+                                title: 'Success!',
+                                message: 'Personal Identity Submitted For Review Successfully.',
+                                variant: 'success'
+                            })
+                        );
+                        
+                        this.getAllPersonIdentity();
+                        
+                    })
+                    .catch(error => {
+                        console.log('error=>' + error);
+                        this.dispatchEvent(
+                            new ShowToastEvent({
+                                title: 'Error While Submitting Personal Identity For Review!',
+                                message: error.body.message,
+                                variant: 'error'
+                            })
+                        );
+                    });
+
+        }
+    /*********** submit For Review Methods Ends ***************/
+
+}
+=====================html file
+<template>
+    <template if:true={showList}>
+        <div style="display: flex;" class="slds-grid slds-wrap">
+
+            <div class="slds-size_1-of-1 ">
+                <lightning-button class="slds-m-left_small slds-show_medium" variant="brand" label="Back To My Profile" title="Back To My Profile" onclick={backToMyProfile}></lightning-button>
+                <lightning-button-icon class="slds-m-left_small slds-hide_medium" icon-name="utility:back"   variant="brand" alternative-text="Back To My Profile" title="Back To My Profile" onclick={backToMyProfile}></lightning-button-icon>
+                <lightning-button-icon style="float: right;" class="slds-m-right_small " icon-name="utility:refresh"   variant="brand" alternative-text="Refresh" title="Refresh" onclick={getAllPersonIdentity}></lightning-button-icon>
+            </div>
+
+            <div class="slds-size_1-of-1 ">
+                <span class="slds-size_4-of-8 slds-align_absolute-center headerclass slds-p-around_medium">Personal Identity</span>  
+            
+            </div>
+            
+        </div>
+
+        
+
+        <template if:true={allPrimaryIdsData}>
+            <div style="display: flex;">
+                <span class="slds-align_absolute-center tableheaderclass ">Primary Identification Documents</span>  
+                <lightning-button class="slds-m-left_small slds-show_medium slds-float_right slds-p-around_small" variant="brand" label="Add New Primary Id" title="Add New Primary Id" onclick={addPrimaryId}></lightning-button>
+                <lightning-button-icon class="slds-m-left_small slds-hide_medium slds-float_right slds-p-around_small" icon-name="utility:add"   variant="brand" alternative-text="Add New Primary Id" title="Add New Primary Id" onclick={addPrimaryId}></lightning-button-icon>
+               
+                        </div> 
+                        <span class="slds-m-right_small " style="color: red; ">Note: One ID might be enough if it’s a passport…</span>
+
+            <table class="tablecls">
+                <thead>
+                    <!-- <th>Name</th> -->
+                    <th>ID Type</th>
+                    <th class="slds-show_medium">Issued Date</th>
+                    <th class="slds-show_medium">Issuing Authority</th>
+                    <th>Expiration Date</th>
+                    <th>Status</th>
+                    <th style="width: 10%;"></th>
+                </thead>
+                <tbody>
+                    <template for:each={allPrimaryIdsData} for:item="Id" for:index="index">
+                        <tr key={Id.recId} class="slds-p-around_small">
+                            <!-- <td>{Id.MemberName}</td> -->
+                            <td>{Id.IDType}</td>
+                            <td class="slds-show_medium">{Id.issuedDate}</td>
+                            <td class="slds-show_medium">{Id.issuingAuthority}</td>
+                            <td>{Id.expirationDate}</td>
+                            <td>{Id.Status}</td>
+                            <td  style="justify-content: end; display: flex;">
+
+                                <lightning-button-icon class="slds-m-left_small"  if:true={Id.isReviewSubmissionAvailable}
+                                data-index={index} icon-name="utility:check" variant="brand" 
+                                alternative-text="Submit For Review" title="Submit For Review" 
+                                data-id={Id.recId} data-date={Id.expirationDate} onclick={submitForReviewConfimation}></lightning-button-icon>
+
+                                <lightning-button-icon class="slds-m-left_small"  if:true={Id.isEditable} if:false={Id.isLocked}
+                                data-index={index} icon-name="utility:edit" variant="brand" 
+                                alternative-text="Edit PrimaryId" title="Edit PrimaryId" 
+                                onclick={EditPrimaryId}></lightning-button-icon>
+
+                                <lightning-button-icon class="slds-m-left_small" if:true={Id.isDeletable} if:false={Id.isLocked}
+                                data-index={index} icon-name="utility:delete" variant="brand" 
+                                alternative-text="Edit PrimaryId" title="Delete PrimaryId" 
+                                data-id={Id.recId} data-primsecd={Id.isPrimary} onclick={DeleteId}></lightning-button-icon>
+                            
+                                <lightning-button-icon class="slds-m-left_small" 
+                                    icon-name="utility:lock" variant="brand" if:true={Id.isLocked}
+                                    alternative-text="Lock PrimaryId" title="Lock PrimaryId"></lightning-button-icon>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+
+            </table>
+        </template>
+
+        <template if:true={allSecondaryIdsData}>
+            <div style="display: flex;">
+                <span class="slds-align_absolute-center tableheaderclass slds-p-around_small">Secondary Identification Documents</span>  
+                
+                <lightning-button class="slds-m-left_small slds-show_medium slds-float_right slds-p-around_small" variant="brand" label="Add New Secondary Id" title="Add New Secondary Id" onclick={addSecondaryId}></lightning-button>
+                <lightning-button-icon class="slds-m-left_small slds-hide_medium slds-float_right slds-p-around_small" icon-name="utility:add"   variant="brand" alternative-text="Add New Secondary Id" title="Add New Secondary Id" onclick={addSecondaryId}></lightning-button-icon>
+            </div>
+            <table class="tablecls">
+                <thead>
+                    <!-- <th>Name</th> -->
+                    <th>ID Type</th>
+                    <th class="slds-show_medium">Issued Date</th>
+                    <th class="slds-show_medium">Issuing Authority</th>
+                    <th>Expiration Date</th>
+                    <th>Status</th>
+                    <th style="width: 10%;"></th>
+                </thead>
+                <tbody>
+                    <template for:each={allSecondaryIdsData} for:item="Id" for:index="index">
+                        <tr key={Id.recId} class="slds-p-around_small">
+                            <!-- <td>{Id.MemberName}</td> -->
+                            <td>{Id.IDType}</td>
+                            <td class="slds-show_medium">{Id.issuedDate}</td>
+                            <td class="slds-show_medium">{Id.issuingAuthority}</td>
+                            <td>{Id.expirationDate}</td>
+                            <td>{Id.Status}</td>
+                            <td style="justify-content: end;  display: flex;">
+
+                                <lightning-button-icon class="slds-m-left_small" if:true={Id.isReviewSubmissionAvailable}
+                                data-index={index} icon-name="utility:check" variant="brand" 
+                                alternative-text="Submit For Review" title="Submit For Review" 
+                                data-id={Id.recId} data-date={Id.expirationDate} onclick={submitForReviewConfimation}></lightning-button-icon>
+
+                                <lightning-button-icon class="slds-m-left_small" if:true={Id.isEditable} if:false={Id.isLocked}
+                                data-index={index} icon-name="utility:edit" variant="brand" 
+                                alternative-text="Edit SecondaryId" title="Edit SecondaryId" 
+                                onclick={EditSecondaryId}></lightning-button-icon>
+
+                                <lightning-button-icon class="slds-m-left_small" if:true={Id.isDeletable} if:false={Id.isLocked}
+                                data-index={index} icon-name="utility:delete" variant="brand" 
+                                alternative-text="Edit SecondaryId" title="Delete SecondaryId" 
+                                data-id={Id.recId} data-primsecd={Id.isPrimary} onclick={DeleteId}></lightning-button-icon>
+                                
+                                <lightning-button-icon class="slds-m-left_small" 
+                                    icon-name="utility:lock" variant="brand" if:true={Id.isLocked}
+                                    alternative-text="Lock SecondaryId" title="Lock SecondaryId"></lightning-button-icon>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+
+            </table>
+        </template>
+
+    </template>
+
+    <template if:false={showList}>
+
+        <template if:true={showPrimaryIdForm}>
+            <!-- <lightning-button-icon class="slds-m-left_small" icon-name="utility:back"   variant="brand" alternative-text="Back To Personal Identity" title="Back To My Profile" onclick={backToPersonalIdentity}></lightning-button-icon> -->
+            
+            <!-- <c-member_-primary-id oncancel={backToPersonalIdentity} primaryid=1 memberid={memberId} membername={memberName}></c-member_-primary-id> -->
+            <c-member_-personal-id-information uploadedidlist={uploadedprimaryid} iddata={iddata} oncancel={backToPersonalIdentity} primaryid=1 memberid={memberId} membername={memberName}></c-member_-personal-id-information>
+       
+        </template>
+
+        <template if:false={showPrimaryIdForm}>
+            
+            <!-- <c-member_-primary-id oncancel={backToPersonalIdentity} primaryid=0 memberid={memberId} membername={memberName}></c-member_-primary-id> -->
+            <c-member_-personal-id-information uploadedidlist={uploadedsecondaryid} iddata={iddata} oncancel={backToPersonalIdentity} primaryid=0 memberid={memberId} membername={memberName}></c-member_-personal-id-information>
+        </template>
+
+    </template>
+
+    <template if:true={loader}>
+        <lightning-spinner alternative-text="Loading"></lightning-spinner>
+    </template>
+
+    <!-- Delete Confirmation Popup -->
+    <template if:true={deleteConfirmationPopup}>
+        <section role="dialog" tabindex="-1" aria-labelledby="modal-heading-01" aria-modal="true"
+            aria-describedby="modal-content-id-1" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                        title="Close" onclick={closePopUp}>
+                        <lightning-icon icon-name="utility:close" alternative-text="close" variant="inverse"
+                            size="small"></lightning-icon>
+                        <span class="slds-assistive-text">Close</span>
+                    </button>
+                    <h2 class="slds-text-heading_medium slds-hyphenate HeadingName">Delete Identity Details</h2>
+                </header>
+                
+                <div class="slds-modal__content slds-p-around_medium">
+                    <lightning-card>
+                        <div style="text-align: left;">
+                            <p>Do you Really want to delete this Identity?</p>
+                           
+                        </div>
+                    </lightning-card>
+                </div>
+                
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Delete" variant="brand" title="Open Modal" class="slds-m-left_x-small"
+                        onclick={deleteIdentity}>
+                    </lightning-button>
+                    <lightning-button class="slds-m-left_x-small" label="Cancel" onclick={closePopUp}>
+                    </lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open">
+        </div>
+    </template>
+
+     <!-- submit For Review Confirmation Popup -->
+     <template if:true={submitForReviewConfirmationPopup}>
+        <section role="dialog" tabindex="-1" aria-labelledby="modal-heading-01" aria-modal="true"
+            aria-describedby="modal-content-id-1" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <!-- modal header start -->
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                        title="Close" onclick={closePopUp}>
+                        <lightning-icon icon-name="utility:close" alternative-text="close" variant="inverse"
+                            size="small"></lightning-icon>
+                        <span class="slds-assistive-text">Close</span>
+                    </button>
+                    <h2 class="slds-text-heading_medium slds-hyphenate HeadingName">{popUpTitle} </h2>
+                </header>
+                <!-- modal body start -->
+                <div class="slds-modal__content slds-p-around_medium">
+                    <lightning-card>
+                        <p>{popUpBody}</p>                        
+                    </lightning-card>
+                </div>
+                <!-- modal footer start-->
+                <footer class="slds-modal__footer">
+                    <lightning-button if:true={isDocAvailable} label="Ok" variant="brand" title="Open Modal" class="slds-m-left_x-small"
+                        onclick={submitForReview}>
+                    </lightning-button>
+                    <lightning-button if:false={isDocAvailable} label="Ok" variant="brand" title="Open Modal" class="slds-m-left_x-small"
+                        onclick={closePopUp}>
+                    </lightning-button>
+                    <lightning-button if:true={isDocAvailable} class="slds-m-left_x-small" label="Cancel" onclick={closePopUp}>
+                    </lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open">
+        </div>
+    </template>
+</template>
